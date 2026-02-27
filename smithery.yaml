@@ -1,0 +1,24 @@
+name: mcp-tool-search
+description: Reduce MCP tool-definition context overhead by 85-96%. Proxy server with lazy tool loading and fuzzy search across backend MCP servers.
+version: "1.1.0"
+license: MIT
+homepage: https://github.com/KGT24k/mcp-tool-search
+categories:
+  - tools
+  - development
+  - optimization
+
+startCommand:
+  type: stdio
+  configSchema:
+    properties:
+      catalogPath:
+        type: string
+        description: "Path to catalog.json (pre-built tool index). Defaults to ./catalog.json."
+        default: ./catalog.json
+  commandFunction: |-
+    (config) => ({
+      command: "npx",
+      args: ["-y", "mcp-tool-search"],
+      env: config.catalogPath ? { MCP_TOOL_SEARCH_CATALOG: config.catalogPath } : {}
+    })

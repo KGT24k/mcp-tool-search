@@ -1,0 +1,12 @@
+src/
+__tests__/
+*.test.ts
+live-test.ts
+catalog.json
+.env
+.env.*
+tsconfig.json
+.gitignore
+.github/
+smithery.yaml
+BENCHMARKS.md

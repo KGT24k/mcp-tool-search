@@ -1,0 +1,4 @@
+node_modules/
+dist/
+catalog.json
+*.tsbuildinfo

@@ -1,0 +1,55 @@
+{
+  "name": "mcp-tool-search",
+  "version": "1.1.0",
+  "description": "MCP proxy that reduces Claude context token usage by ~85-96% via lazy tool loading. Works with Claude Code, Claude Desktop, and any MCP client.",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "mcp-tool-search": "dist/index.js",
+    "mcp-build-catalog": "dist/build-catalog.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "catalog": "node dist/build-catalog.js",
+    "dev": "tsc --watch",
+    "test": "node --import tsx --test src/__tests__/*.test.ts",
+    "prepublishOnly": "npm run build"
+  },
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "claude-code",
+    "proxy",
+    "token-optimization",
+    "tool-search"
+  ],
+  "author": "Kaleb Teeter",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/KGT24k/mcp-tool-search"
+  },
+  "homepage": "https://github.com/KGT24k/mcp-tool-search#readme",
+  "bugs": {
+    "url": "https://github.com/KGT24k/mcp-tool-search/issues"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.24.0",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.19.11",
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ]
+}
