@@ -109,12 +109,13 @@ async function discoverTools(
 
   try {
     // Connect with timeout
+    let timer: ReturnType<typeof setTimeout>;
     await Promise.race([
       client.connect(transport),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(new Error("Connection timeout")), CONNECT_TIMEOUT)
-      ),
-    ]);
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Connection timeout")), CONNECT_TIMEOUT);
+      }),
+    ]).finally(() => clearTimeout(timer!));
 
     // List all tools
     const response = await client.listTools();
@@ -126,10 +127,23 @@ async function discoverTools(
 
     await client.close();
 
+    // Store env keys but redact values that look like secrets/tokens
+    const scrubbed: Record<string, string> = {};
+    if (config.env) {
+      for (const [k, v] of Object.entries(config.env)) {
+        const lk = k.toLowerCase();
+        if (lk.includes("token") || lk.includes("secret") || lk.includes("key") || lk.includes("password") || lk.includes("auth")) {
+          scrubbed[k] = "***REDACTED***";
+        } else {
+          scrubbed[k] = v;
+        }
+      }
+    }
+
     return {
       command: config.command,
       args: config.args || [],
-      env: config.env,
+      env: Object.keys(scrubbed).length > 0 ? scrubbed : undefined,
       tools,
     };
   } catch (err) {

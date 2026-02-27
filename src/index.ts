@@ -244,6 +244,7 @@ async function main(): Promise<void> {
               text: `Error calling ${serverName}:${toolName}: ${(err as Error).message}`,
             },
           ],
+          isError: true,
         };
       }
     }
@@ -282,6 +283,13 @@ async function main(): Promise<void> {
       };
     }
   );
+
+  // Catch unhandled rejections (e.g. from async timer callbacks)
+  process.on("unhandledRejection", (err) => {
+    process.stderr.write(
+      `[mcp-tool-search] Unhandled rejection: ${err}\n`
+    );
+  });
 
   // Start the proxy
   const transport = new StdioServerTransport();

@@ -70,15 +70,16 @@ export class ServerPool {
       { capabilities: {} }
     );
 
+    let timer: ReturnType<typeof setTimeout>;
     await Promise.race([
       client.connect(transport),
-      new Promise((_, reject) =>
-        setTimeout(
+      new Promise((_, reject) => {
+        timer = setTimeout(
           () => reject(new Error(`Connection to ${serverName} timed out after ${CONNECT_TIMEOUT_MS}ms`)),
           CONNECT_TIMEOUT_MS
-        )
-      ),
-    ]);
+        );
+      }),
+    ]).finally(() => clearTimeout(timer!));
 
     const entry: PoolEntry = {
       client,
@@ -157,7 +158,7 @@ export class ServerPool {
     if (entry.timer) clearTimeout(entry.timer);
 
     entry.timer = setTimeout(async () => {
-      await this.disconnect(serverName);
+      try { await this.disconnect(serverName); } catch { /* ignore */ }
     }, IDLE_TIMEOUT_MS);
     entry.timer.unref();
   }
