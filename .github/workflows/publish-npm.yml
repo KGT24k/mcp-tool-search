@@ -10,6 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write  # Required for npm provenance
     steps:
       - uses: actions/checkout@v4
 
@@ -22,6 +23,14 @@ jobs:
 
       - run: npm run build
 
-      - run: npm publish
+      - name: Verify build artifacts
+        run: |
+          test -f dist/index.js || (echo "ERROR: dist/index.js missing" && exit 1)
+          test -f dist/build-catalog.js || (echo "ERROR: dist/build-catalog.js missing" && exit 1)
+
+      - name: Verify tests pass
+        run: npm test
+
+      - run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

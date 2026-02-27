@@ -11,6 +11,7 @@ jobs:
     permissions:
       packages: write
       contents: read
+      id-token: write  # Required for npm provenance
     steps:
       - uses: actions/checkout@v4
 
@@ -23,6 +24,14 @@ jobs:
 
       - run: npm run build
 
+      - name: Verify build artifacts
+        run: |
+          test -f dist/index.js || (echo "ERROR: dist/index.js missing" && exit 1)
+          test -f dist/build-catalog.js || (echo "ERROR: dist/build-catalog.js missing" && exit 1)
+
+      - name: Verify tests pass
+        run: npm test
+
       - name: Scope package for GitHub npm registry
         run: |
           node -e "
@@ -33,6 +42,6 @@ jobs:
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
 
-      - run: npm publish
+      - run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
