@@ -1,6 +1,8 @@
 # MCP Tool Search
 
 [![npm version](https://img.shields.io/npm/v/mcp-tool-search.svg)](https://www.npmjs.com/package/mcp-tool-search)
+[![npm downloads](https://img.shields.io/npm/dm/mcp-tool-search.svg)](https://www.npmjs.com/package/mcp-tool-search)
+[![npm audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://www.npmjs.com/package/mcp-tool-search)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
 [![Tests](https://img.shields.io/badge/tests-36%2F36-brightgreen.svg)](src/__tests__)
@@ -86,7 +88,12 @@ This connects to each configured MCP server, snapshots their tool definitions, a
 
 ### 3. Add the proxy to your MCP client
 
-Add to your `.mcp.json` (or equivalent config):
+Choose your client below for the correct configuration:
+
+<details>
+<summary><strong>Claude Code</strong></summary>
+
+Add to your `.mcp.json` in the project root (or `~/.mcp.json` for global config):
 
 ```json
 {
@@ -111,6 +118,65 @@ Or if installed from source:
   }
 }
 ```
+
+</details>
+
+<details>
+<summary><strong>Claude Desktop</strong></summary>
+
+Add to your `claude_desktop_config.json`:
+
+- **macOS:** `~/Library/Application Support/Claude/claude_desktop_config.json`
+- **Windows:** `%APPDATA%\Claude\claude_desktop_config.json`
+
+```json
+{
+  "mcpServers": {
+    "mcp-tool-search": {
+      "command": "npx",
+      "args": ["-y", "mcp-tool-search"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Cursor</strong></summary>
+
+Add to your Cursor MCP settings (`.cursor/mcp.json` in your project or global config):
+
+```json
+{
+  "mcpServers": {
+    "mcp-tool-search": {
+      "command": "npx",
+      "args": ["-y", "mcp-tool-search"]
+    }
+  }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Windsurf</strong></summary>
+
+Add to your Windsurf MCP configuration (`~/.codeium/windsurf/mcp_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "mcp-tool-search": {
+      "command": "npx",
+      "args": ["-y", "mcp-tool-search"]
+    }
+  }
+}
+```
+
+</details>
 
 ### 4. Disable direct backend servers
 
@@ -209,6 +275,35 @@ npm run dev
 # Rebuild catalog
 npm run catalog
 ```
+
+## Contributing
+
+Contributions are welcome! Here's how to get started:
+
+1. **Fork** the repository and clone your fork
+2. **Install dependencies:** `npm install`
+3. **Build:** `npm run build`
+4. **Run tests:** `npm test` (all 36 tests must pass)
+5. **Make your changes** on a feature branch
+6. **Submit a PR** with a clear description of what changed and why
+
+### Guidelines
+
+- Follow the existing TypeScript style (strict mode, no `any` in core logic)
+- Add tests for new features or bug fixes
+- Keep dependencies minimal -- any new runtime dependency needs strong justification
+- Run `npm audit` and ensure 0 vulnerabilities before submitting
+- Update documentation if your change affects the public API or setup process
+
+### Reporting Issues
+
+Found a bug or have a feature request? [Open an issue](https://github.com/KGT24k/mcp-tool-search/issues) on GitHub.
+
+For security vulnerabilities, please use [GitHub Security Advisories](https://github.com/KGT24k/mcp-tool-search/security/advisories) instead of public issues.
+
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for a detailed history of all releases.
 
 ## License
 
