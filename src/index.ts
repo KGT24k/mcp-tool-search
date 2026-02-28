@@ -20,11 +20,14 @@
 
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { z } from "zod";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
+import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
+import { randomUUID } from "node:crypto";
 import { Catalog } from "./catalog.js";
 import { ServerPool } from "./pool.js";
 
@@ -96,193 +99,8 @@ async function main(): Promise<void> {
     version: "2.0.0",
   });
 
-  // ──────────────────────────────────────────────
-  // TOOL 1: search_tools
-  // ──────────────────────────────────────────────
-  server.tool(
-    "search_tools",
-    `Search across ${catalog.totalTools} tools from ${catalog.totalServers} MCP servers. Returns matching tool names + descriptions. Use this FIRST to find the right tool before calling it.`,
-    {
-      query: z
-        .string()
-        .describe(
-          "Search query: tool name, capability, or keyword (e.g. 'file read', 'git', 'execute command')"
-        ),
-      max_results: z
-        .number()
-        .min(1)
-        .max(50)
-        .default(10)
-        .describe("Max results to return (default 10)"),
-    },
-    async ({ query, max_results }) => {
-      const results = catalog.search(query, max_results);
-
-      if (results.length === 0) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `No tools found matching "${query}". Try broader terms or use list_servers to see all available servers.`,
-            },
-          ],
-        };
-      }
-
-      const formatted = results
-        .map(
-          (r, i) =>
-            `${i + 1}. **${r.server}:${r.tool}** — ${r.description}`
-        )
-        .join("\n");
-
-      void writeMetrics(pool, catalog);
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `Found ${results.length} tools:\n\n${formatted}\n\nUse get_tool_schema(server, tool) to see full input schema, then call_tool(server, tool, args) to execute.`,
-          },
-        ],
-      };
-    }
-  );
-
-  // ──────────────────────────────────────────────
-  // TOOL 2: get_tool_schema
-  // ──────────────────────────────────────────────
-  server.tool(
-    "get_tool_schema",
-    "Get the full JSON input schema for a specific tool. Use after search_tools to see required parameters before calling.",
-    {
-      server: z.string().describe("Server name (from search_tools results)"),
-      tool: z.string().describe("Tool name (from search_tools results)"),
-    },
-    async ({ server: serverName, tool: toolName }) => {
-      const schema = catalog.getToolSchema(serverName, toolName);
-
-      if (!schema) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Tool "${toolName}" not found on server "${serverName}". Use search_tools to find the correct name.`,
-            },
-          ],
-        };
-      }
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: JSON.stringify(schema, null, 2),
-          },
-        ],
-      };
-    }
-  );
-
-  // ──────────────────────────────────────────────
-  // TOOL 3: call_tool
-  // ──────────────────────────────────────────────
-  server.tool(
-    "call_tool",
-    "Execute a tool on a backend MCP server. The proxy handles connection management automatically. Servers stay alive for 5 min after last use.",
-    {
-      server: z.string().describe("Server name (from search_tools results)"),
-      tool: z.string().describe("Tool name to execute"),
-      arguments: z
-        .record(z.unknown())
-        .default({})
-        .describe("Tool arguments as JSON object (use get_tool_schema to see required params)"),
-    },
-    async ({ server: serverName, tool: toolName, arguments: args }) => {
-      // Validate server exists in catalog before attempting spawn
-      if (!catalog.getServer(serverName)) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Unknown server: '${serverName}'. Use list_servers to see available servers.`,
-            },
-          ],
-          isError: true,
-        };
-      }
-      // Validate tool exists on the server
-      if (!catalog.getToolSchema(serverName, toolName)) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Unknown tool '${toolName}' on server '${serverName}'. Use search_tools to find tools.`,
-            },
-          ],
-          isError: true,
-        };
-      }
-
-      try {
-        const result = await pool.callTool(serverName, toolName, args as Record<string, unknown>);
-        void writeMetrics(pool, catalog);
-
-        // Validate response shape — backend might return unexpected format
-        if (result && typeof result === "object" && "content" in (result as object)) {
-          return result as { content: Array<{ type: "text"; text: string }> };
-        }
-        // Wrap raw response in text content block
-        return {
-          content: [{ type: "text" as const, text: JSON.stringify(result) }],
-        };
-      } catch (err) {
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: `Error calling ${serverName}:${toolName}: ${(err as Error).message}`,
-            },
-          ],
-          isError: true,
-        };
-      }
-    }
-  );
-
-  // ──────────────────────────────────────────────
-  // TOOL 4: list_servers
-  // ──────────────────────────────────────────────
-  server.tool(
-    "list_servers",
-    "List all available MCP servers with tool counts and connection status. Use for an overview of what's available.",
-    {},
-    async () => {
-      const toolCounts = catalog.serverToolCounts();
-      const poolStats = pool.stats();
-
-      const lines = catalog.serverNames.map((name) => {
-        const count = toolCounts[name] || 0;
-        const connected = poolStats.servers.includes(name);
-        const metrics = poolStats.metrics.find((m) => m.server === name);
-        const status = connected
-          ? `🟢 active (${metrics?.calls || 0} calls)`
-          : "⚪ idle";
-        return `• **${name}** — ${count} tools — ${status}`;
-      });
-
-      void writeMetrics(pool, catalog);
-
-      return {
-        content: [
-          {
-            type: "text" as const,
-            text: `${catalog.totalServers} servers, ${catalog.totalTools} tools total:\n\n${lines.join("\n")}`,
-          },
-        ],
-      };
-    }
-  );
+  // Register all proxy tools on the primary server (used by stdio mode)
+  registerTools(server, catalog, pool);
 
   // Catch unhandled rejections (e.g. from async timer callbacks)
   process.on("unhandledRejection", (err) => {
@@ -291,22 +109,234 @@ async function main(): Promise<void> {
     );
   });
 
-  // Start the proxy
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  // Transport mode: HTTP if MCP_HTTP_PORT is set or --http flag, otherwise stdio
+  const httpPort = parseInt(process.env.MCP_HTTP_PORT || "", 10);
+  const useHttp = !isNaN(httpPort) || process.argv.includes("--http");
+  const port = !isNaN(httpPort) ? httpPort : 3100;
 
-  process.stderr.write(`[mcp-tool-search] Proxy ready (stdio)\n`);
+  if (useHttp) {
+    // Streamable HTTP transport — for remote clients, Smithery, Docker, etc.
+    const sessions = new Map<string, StreamableHTTPServerTransport>();
 
-  // Cleanup on exit
-  process.on("SIGINT", async () => {
-    await pool.disconnectAll();
-    process.exit(0);
-  });
+    const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
+      const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
-  process.on("SIGTERM", async () => {
-    await pool.disconnectAll();
-    process.exit(0);
-  });
+      // Health check endpoint
+      if (url.pathname === "/health" && req.method === "GET") {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({
+          status: "ok",
+          transport: "streamable-http",
+          servers: catalog.totalServers,
+          tools: catalog.totalTools,
+          sessions: sessions.size,
+        }));
+        return;
+      }
+
+      // MCP endpoint
+      if (url.pathname === "/mcp") {
+        // DNS rebinding protection — only allow localhost
+        const host = req.headers.host || "";
+        if (!host.startsWith("localhost") && !host.startsWith("127.0.0.1") && !host.startsWith("[::1]")) {
+          res.writeHead(403, { "Content-Type": "text/plain" });
+          res.end("Forbidden: only localhost connections allowed");
+          return;
+        }
+
+        if (req.method === "POST") {
+          // Check for existing session
+          const sessionId = req.headers["mcp-session-id"] as string | undefined;
+          let transport: StreamableHTTPServerTransport;
+
+          if (sessionId && sessions.has(sessionId)) {
+            transport = sessions.get(sessionId)!;
+          } else if (!sessionId) {
+            // New session — create transport and connect server
+            transport = new StreamableHTTPServerTransport({
+              sessionIdGenerator: () => randomUUID(),
+            });
+
+            // Store session on initialization
+            transport.onclose = () => {
+              const sid = transport.sessionId;
+              if (sid) sessions.delete(sid);
+            };
+
+            // Create a fresh MCP server for this session
+            const sessionServer = new McpServer({
+              name: "mcp-tool-search",
+              version: "2.0.0",
+            });
+
+            // Re-register tools for this session server
+            registerTools(sessionServer, catalog, pool);
+            await sessionServer.connect(transport);
+
+            if (transport.sessionId) {
+              sessions.set(transport.sessionId, transport);
+            }
+          } else {
+            // Session ID provided but not found
+            res.writeHead(404, { "Content-Type": "text/plain" });
+            res.end("Session not found");
+            return;
+          }
+
+          await transport.handleRequest(req, res);
+          return;
+        }
+
+        if (req.method === "GET") {
+          // SSE connection for server-to-client notifications
+          const sessionId = req.headers["mcp-session-id"] as string | undefined;
+          if (sessionId && sessions.has(sessionId)) {
+            const transport = sessions.get(sessionId)!;
+            await transport.handleRequest(req, res);
+            return;
+          }
+          res.writeHead(400, { "Content-Type": "text/plain" });
+          res.end("Missing or invalid session ID for SSE");
+          return;
+        }
+
+        if (req.method === "DELETE") {
+          // Session termination
+          const sessionId = req.headers["mcp-session-id"] as string | undefined;
+          if (sessionId && sessions.has(sessionId)) {
+            const transport = sessions.get(sessionId)!;
+            await transport.handleRequest(req, res);
+            sessions.delete(sessionId);
+            return;
+          }
+          res.writeHead(404, { "Content-Type": "text/plain" });
+          res.end("Session not found");
+          return;
+        }
+
+        res.writeHead(405, { "Content-Type": "text/plain" });
+        res.end("Method not allowed");
+        return;
+      }
+
+      // Not found
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Not found — MCP endpoint is at /mcp");
+    });
+
+    httpServer.listen(port, "127.0.0.1", () => {
+      process.stderr.write(
+        `[mcp-tool-search] Proxy ready (streamable-http) at http://127.0.0.1:${port}/mcp\n`
+      );
+    });
+
+    // Cleanup on exit
+    const cleanup = async () => {
+      for (const transport of sessions.values()) {
+        try { await transport.close(); } catch { /* ignore */ }
+      }
+      sessions.clear();
+      httpServer.close();
+      await pool.disconnectAll();
+      process.exit(0);
+    };
+    process.on("SIGINT", cleanup);
+    process.on("SIGTERM", cleanup);
+
+  } else {
+    // Stdio transport — default for Claude Code, Claude Desktop, etc.
+    const transport = new StdioServerTransport();
+    await server.connect(transport);
+
+    process.stderr.write(`[mcp-tool-search] Proxy ready (stdio)\n`);
+
+    // Cleanup on exit
+    process.on("SIGINT", async () => {
+      await pool.disconnectAll();
+      process.exit(0);
+    });
+
+    process.on("SIGTERM", async () => {
+      await pool.disconnectAll();
+      process.exit(0);
+    });
+  }
+}
+
+/** Register all 4 proxy tools on an MCP server instance. */
+function registerTools(server: McpServer, catalog: Catalog, pool: ServerPool): void {
+  server.tool(
+    "search_tools",
+    `Search across ${catalog.totalTools} tools from ${catalog.totalServers} MCP servers. Returns matching tool names + descriptions. Use this FIRST to find the right tool before calling it.`,
+    {
+      query: z.string().describe("Search query: tool name, capability, or keyword"),
+      max_results: z.number().min(1).max(50).default(10).describe("Max results (default 10)"),
+    },
+    async ({ query, max_results }) => {
+      const results = catalog.search(query, max_results);
+      if (results.length === 0) {
+        return { content: [{ type: "text" as const, text: `No tools found matching "${query}".` }] };
+      }
+      const formatted = results.map((r, i) => `${i + 1}. **${r.server}:${r.tool}** — ${r.description}`).join("\n");
+      void writeMetrics(pool, catalog);
+      return { content: [{ type: "text" as const, text: `Found ${results.length} tools:\n\n${formatted}\n\nUse get_tool_schema then call_tool.` }] };
+    }
+  );
+
+  server.tool(
+    "get_tool_schema",
+    "Get the full JSON input schema for a specific tool.",
+    {
+      server: z.string().describe("Server name"),
+      tool: z.string().describe("Tool name"),
+    },
+    async ({ server: sn, tool: tn }) => {
+      const schema = catalog.getToolSchema(sn, tn);
+      if (!schema) return { content: [{ type: "text" as const, text: `Tool "${tn}" not found on "${sn}".` }] };
+      return { content: [{ type: "text" as const, text: JSON.stringify(schema, null, 2) }] };
+    }
+  );
+
+  server.tool(
+    "call_tool",
+    "Execute a tool on a backend MCP server.",
+    {
+      server: z.string().describe("Server name"),
+      tool: z.string().describe("Tool name"),
+      arguments: z.record(z.unknown()).default({}).describe("Tool arguments as JSON object"),
+    },
+    async ({ server: sn, tool: tn, arguments: args }) => {
+      if (!catalog.getServer(sn)) return { content: [{ type: "text" as const, text: `Unknown server: '${sn}'.` }], isError: true };
+      if (!catalog.getToolSchema(sn, tn)) return { content: [{ type: "text" as const, text: `Unknown tool '${tn}' on '${sn}'.` }], isError: true };
+      try {
+        const result = await pool.callTool(sn, tn, args as Record<string, unknown>);
+        void writeMetrics(pool, catalog);
+        if (result && typeof result === "object" && "content" in (result as object)) return result as { content: Array<{ type: "text"; text: string }> };
+        return { content: [{ type: "text" as const, text: JSON.stringify(result) }] };
+      } catch (err) {
+        return { content: [{ type: "text" as const, text: `Error: ${(err as Error).message}` }], isError: true };
+      }
+    }
+  );
+
+  server.tool(
+    "list_servers",
+    "List all available MCP servers with tool counts and connection status.",
+    {},
+    async () => {
+      const tc = catalog.serverToolCounts();
+      const ps = pool.stats();
+      const lines = catalog.serverNames.map((name) => {
+        const count = tc[name] || 0;
+        const connected = ps.servers.includes(name);
+        const metrics = ps.metrics.find((m) => m.server === name);
+        const status = connected ? `active (${metrics?.calls || 0} calls)` : "idle";
+        return `- **${name}** — ${count} tools — ${status}`;
+      });
+      void writeMetrics(pool, catalog);
+      return { content: [{ type: "text" as const, text: `${catalog.totalServers} servers, ${catalog.totalTools} tools:\n\n${lines.join("\n")}` }] };
+    }
+  );
 }
 
 main().catch((err) => {

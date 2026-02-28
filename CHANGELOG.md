@@ -5,6 +5,22 @@ All notable changes to mcp-tool-search will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.0] - 2026-02-28
+
+### Added
+- **Streamable HTTP transport** — run as a remote HTTP server with `MCP_HTTP_PORT=3100` or `--http` flag
+  - Session management with unique session IDs per client
+  - Health check endpoint at `/health` (returns server stats, tool count, session count)
+  - DNS rebinding protection — only allows localhost connections
+  - Session cleanup on DELETE requests
+  - Enables Smithery hosting, Docker deployments, and remote client connections
+- `start:http` npm script for quick HTTP mode startup
+- Refactored tool registration into reusable `registerTools()` function
+
+### Changed
+- Server version bumped to 2.0.0 (internal MCP protocol version)
+- Smithery.yaml updated to v1.2.0
+
 ## [1.1.3] - 2026-02-26
 
 ### Fixed
@@ -52,6 +68,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Benchmarks documentation (BENCHMARKS.md)
 - MIT license
 
+[1.2.0]: https://github.com/KGT24k/mcp-tool-search/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/KGT24k/mcp-tool-search/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/KGT24k/mcp-tool-search/compare/v1.1.1...v1.1.2
 [1.1.1]: https://github.com/KGT24k/mcp-tool-search/compare/v1.1.0...v1.1.1

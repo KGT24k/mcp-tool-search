@@ -1,6 +1,6 @@
 name: mcp-tool-search
 description: Reduce MCP tool-definition context overhead by 85-96%. Proxy server with lazy tool loading and fuzzy search across backend MCP servers.
-version: "1.1.3"
+version: "1.2.0"
 license: MIT
 homepage: https://github.com/KGT24k/mcp-tool-search
 categories:

@@ -305,6 +305,18 @@ For security vulnerabilities, please use [GitHub Security Advisories](https://gi
 
 See [CHANGELOG.md](CHANGELOG.md) for a detailed history of all releases.
 
+## Security
+
+Using many MCP servers? **Audit your configs first.**
+
+[**Config Guard**](https://github.com/KGT24k/config-guard) scans your `.mcp.json` for 16 types of security vulnerabilities — typosquatting, known CVEs, secret leaks, rug pulls, and more. Zero dependencies, fully offline.
+
+```bash
+pip install config-guard && config-guard
+```
+
+*MCP Tool Search saves tokens. Config Guard saves you from CVEs.*
+
 ## License
 
 [MIT](LICENSE) — Copyright (c) 2026 Kaleb Teeter
