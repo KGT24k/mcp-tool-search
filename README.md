@@ -227,7 +227,23 @@ Additional security measures:
 ### When to use the proxy
 
 - **Use it** when you have 5+ MCP servers or 20+ total tools
+- **Use it** when you need cross-client compatibility (Cursor, Windsurf, VS Code, etc.)
+- **Use it** when you want to aggregate tools from multiple servers behind one endpoint
 - **Skip it** when you have 1–2 servers with few tools
+
+### vs. Anthropic's Built-in Tool Search
+
+Claude Code includes a built-in `defer_loading` mechanism for tool schema optimization. Here's how MCP Tool Search differs:
+
+| Feature | MCP Tool Search | Anthropic defer_loading |
+|---------|----------------|------------------------|
+| Works with Cursor, Windsurf, VS Code | ✅ | ❌ Claude-only |
+| Cross-server aggregation | ✅ Single endpoint | ❌ Per-server |
+| Streamable HTTP transport | ✅ Remote clients | ❌ Stdio only |
+| Fuzzy search with typo tolerance | ✅ Levenshtein | Basic regex/BM25 |
+| Pre-built catalog (offline) | ✅ | ❌ Runtime only |
+
+If you **only** use Claude Code, Anthropic's built-in solution may be sufficient. If you use multiple MCP clients or need cross-server tool federation, MCP Tool Search fills that gap.
 
 ## Compatibility
 
@@ -309,7 +325,7 @@ See [CHANGELOG.md](CHANGELOG.md) for a detailed history of all releases.
 
 Using many MCP servers? **Audit your configs first.**
 
-[**Config Guard**](https://github.com/KGT24k/config-guard) scans your `.mcp.json` for 16 types of security vulnerabilities — typosquatting, known CVEs, secret leaks, rug pulls, and more. Zero dependencies, fully offline.
+[**Config Guard**](https://github.com/KGT24k/config-guard) scans your `.mcp.json` for 20 types of security vulnerabilities — typosquatting, known CVEs, secret leaks, rug pulls, and more. Zero dependencies, fully offline.
 
 ```bash
 pip install config-guard && config-guard

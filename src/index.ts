@@ -28,8 +28,14 @@ import { writeFile, mkdir } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { randomUUID } from "node:crypto";
+import { gzip as gzipCb } from "node:zlib";
+import { promisify } from "node:util";
 import { Catalog } from "./catalog.js";
 import { ServerPool } from "./pool.js";
+
+const gzipAsync = promisify(gzipCb);
+const VERSION = "1.3.0";
+const startTime = Date.now();
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -38,10 +44,10 @@ const catalogPath =
   process.env.MCP_TOOL_SEARCH_CATALOG ||
   resolve(__dirname, "..", "catalog.json");
 
-// Optional: metrics log for AEGIS dashboard integration
+// Optional: metrics log for external dashboard integration
 const metricsPath = process.env.MCP_TOOL_SEARCH_METRICS || "";
 
-/** Write metrics to disk for AEGIS dashboard consumption */
+/** Write metrics to disk for external dashboard consumption */
 async function writeMetrics(
   pool: ServerPool,
   catalog: Catalog
@@ -65,6 +71,38 @@ async function writeMetrics(
   } catch {
     // Non-critical — don't crash the proxy over metrics
   }
+}
+
+/**
+ * Send JSON response with optional gzip compression.
+ * Compresses if client accepts gzip and payload > 1KB.
+ */
+async function sendJSON(
+  req: IncomingMessage,
+  res: ServerResponse,
+  statusCode: number,
+  data: unknown
+): Promise<void> {
+  const json = JSON.stringify(data, null, 2);
+  const acceptsGzip = (req.headers["accept-encoding"] || "").includes("gzip");
+
+  if (acceptsGzip && json.length > 1024) {
+    try {
+      const compressed = await gzipAsync(Buffer.from(json, "utf-8"));
+      res.writeHead(statusCode, {
+        "Content-Type": "application/json",
+        "Content-Encoding": "gzip",
+        "Vary": "Accept-Encoding",
+      });
+      res.end(compressed);
+      return;
+    } catch {
+      // Fallback to uncompressed on gzip failure
+    }
+  }
+
+  res.writeHead(statusCode, { "Content-Type": "application/json" });
+  res.end(json);
 }
 
 async function main(): Promise<void> {
@@ -96,7 +134,7 @@ async function main(): Promise<void> {
   // Create proxy MCP server
   const server = new McpServer({
     name: "mcp-tool-search",
-    version: "2.0.0",
+    version: VERSION,
   });
 
   // Register all proxy tools on the primary server (used by stdio mode)
@@ -121,16 +159,47 @@ async function main(): Promise<void> {
     const httpServer = createServer(async (req: IncomingMessage, res: ServerResponse) => {
       const url = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`);
 
-      // Health check endpoint
+      // Health check endpoint — enhanced with uptime, memory, cache stats
       if (url.pathname === "/health" && req.method === "GET") {
-        res.writeHead(200, { "Content-Type": "application/json" });
-        res.end(JSON.stringify({
+        const poolStats = pool.stats();
+        const memUsage = process.memoryUsage();
+        const healthData = {
           status: "ok",
+          version: VERSION,
           transport: "streamable-http",
+          uptime: Math.floor((Date.now() - startTime) / 1000),
           servers: catalog.totalServers,
           tools: catalog.totalTools,
           sessions: sessions.size,
-        }));
+          connections: {
+            active: poolStats.active,
+            servers: poolStats.servers,
+          },
+          cache: catalog.cacheStats(),
+          memory: {
+            heapUsedMB: Math.round(memUsage.heapUsed / 1024 / 1024 * 100) / 100,
+            heapTotalMB: Math.round(memUsage.heapTotal / 1024 / 1024 * 100) / 100,
+            rssMB: Math.round(memUsage.rss / 1024 / 1024 * 100) / 100,
+          },
+        };
+        await sendJSON(req, res, 200, healthData);
+        return;
+      }
+
+      // Stats endpoint — detailed pool metrics for monitoring
+      if (url.pathname === "/stats" && req.method === "GET") {
+        const poolStats = pool.stats();
+        await sendJSON(req, res, 200, {
+          version: VERSION,
+          uptime: Math.floor((Date.now() - startTime) / 1000),
+          pool: poolStats,
+          cache: catalog.cacheStats(),
+          catalog: {
+            servers: catalog.totalServers,
+            tools: catalog.totalTools,
+            serverToolCounts: catalog.serverToolCounts(),
+          },
+        });
         return;
       }
 
@@ -166,7 +235,7 @@ async function main(): Promise<void> {
             // Create a fresh MCP server for this session
             const sessionServer = new McpServer({
               name: "mcp-tool-search",
-              version: "2.0.0",
+              version: VERSION,
             });
 
             // Re-register tools for this session server
@@ -221,7 +290,7 @@ async function main(): Promise<void> {
 
       // Not found
       res.writeHead(404, { "Content-Type": "text/plain" });
-      res.end("Not found — MCP endpoint is at /mcp");
+      res.end("Not found — endpoints: /mcp, /health, /stats");
     });
 
     httpServer.listen(port, "127.0.0.1", () => {

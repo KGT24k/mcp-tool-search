@@ -5,6 +5,29 @@ All notable changes to mcp-tool-search will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.3.0] - 2026-03-01
+
+### Added
+- **LRU Cache** — Configurable in-memory cache for search results (1-min TTL) and tool schemas (no expiry)
+  - Hit/miss metrics exposed via `/health` and `/stats` endpoints
+  - Automatic cache invalidation on catalog reload
+  - LRU eviction when at capacity (128 search entries, 256 schema entries)
+- **Exponential backoff retry** — Tool calls retry up to 3 times on transient failures
+  - Connection errors (EPIPE, ECONNRESET, Connection closed) trigger reconnect + retry
+  - Timeouts (30s per call) trigger fresh connection + retry
+  - Jittered backoff: 500ms → 1s → 2s → 4s (capped at 8s)
+  - Application errors (bad input, tool logic errors) are NOT retried
+- **Gzip compression** — HTTP responses > 1KB auto-compressed when client accepts gzip
+- **Enhanced `/health` endpoint** — Now includes version, uptime, memory usage, cache stats, pool connections
+- **New `/stats` endpoint** — Detailed monitoring: pool metrics, cache hit rates, catalog breakdown
+- 28 new tests (81 total): LRU cache (26 tests), pool retry/backoff (9 tests), catalog cache integration (7 tests)
+
+### Changed
+- Server version now tracked via `VERSION` constant (was hardcoded "2.0.0" in multiple places)
+- `Catalog.search()` and `Catalog.getToolSchema()` now cache results for faster repeated lookups
+- `ServerPool.callTool()` rewritten with timeout wrapper + retry loop (was single-attempt with manual reconnect)
+- "Connection closed" (MCP -32000 error) added to retryable error classification
+
 ## [1.2.0] - 2026-02-28
 
 ### Added
@@ -68,6 +91,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Benchmarks documentation (BENCHMARKS.md)
 - MIT license
 
+[1.3.0]: https://github.com/KGT24k/mcp-tool-search/compare/v1.2.0...v1.3.0
 [1.2.0]: https://github.com/KGT24k/mcp-tool-search/compare/v1.1.3...v1.2.0
 [1.1.3]: https://github.com/KGT24k/mcp-tool-search/compare/v1.1.2...v1.1.3
 [1.1.2]: https://github.com/KGT24k/mcp-tool-search/compare/v1.1.1...v1.1.2

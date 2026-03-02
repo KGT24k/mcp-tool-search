@@ -8,6 +8,8 @@
 
 import { readFile } from "node:fs/promises";
 import type { CatalogData, CatalogServer, SearchResult } from "./types.js";
+import { LRUCache } from "./cache.js";
+import type { CacheStats } from "./cache.js";
 
 /** Pre-compiled regex for tokenization — avoids re-creation on every search call */
 const TOKENIZE_RE = /[^a-z0-9\s]/g;
@@ -54,6 +56,18 @@ export class Catalog {
     tokens: string[];
   }> = [];
 
+  /** LRU cache for search results (key = "query:maxResults") */
+  private searchCache = new LRUCache<SearchResult[]>({
+    maxEntries: 128,
+    ttlMs: 60_000, // 1 minute — catalog is static, searches are repeatable
+  });
+
+  /** LRU cache for tool schemas (key = "server:tool") */
+  private schemaCache = new LRUCache<Record<string, unknown> | null>({
+    maxEntries: 256,
+    ttlMs: 0, // No expiry — schemas don't change until catalog reload
+  });
+
   constructor(private readonly path: string) {}
 
   /** Load catalog from disk */
@@ -63,6 +77,7 @@ export class Catalog {
     this.validateCatalog(parsed);
     this.data = parsed;
     this.buildIndex();
+    this.clearCaches(); // Invalidate stale cache entries on reload
   }
 
   /** Load catalog from data directly (for testing without filesystem) */
@@ -70,6 +85,7 @@ export class Catalog {
     this.validateCatalog(data);
     this.data = data;
     this.buildIndex();
+    this.clearCaches(); // Invalidate stale cache entries on reload
   }
 
   /** Validate catalog shape to prevent cryptic runtime crashes */
@@ -126,71 +142,82 @@ export class Catalog {
       .filter((t) => t.length > 1);
   }
 
-  /** Fuzzy search across all tools */
+  /** Fuzzy search across all tools (with LRU caching) */
   search(query: string, maxResults: number = 10): SearchResult[] {
+    // Check cache first
+    const cacheKey = `${query}:${maxResults}`;
+    const cached = this.searchCache.get(cacheKey);
+    if (cached) return cached;
+
+    let results: SearchResult[];
+
     if (!query.trim()) {
       // Empty query: return all tools (compact)
-      return this.searchIndex.slice(0, maxResults).map((entry) => ({
+      results = this.searchIndex.slice(0, maxResults).map((entry) => ({
         tool: entry.tool,
         server: entry.server,
         description: entry.description,
         score: 1,
       }));
-    }
+    } else {
+      const queryTokens = this.tokenize(query);
+      const scored: SearchResult[] = [];
 
-    const queryTokens = this.tokenize(query);
-    const scored: SearchResult[] = [];
+      for (const entry of this.searchIndex) {
+        let score = 0;
 
-    for (const entry of this.searchIndex) {
-      let score = 0;
-
-      for (const qt of queryTokens) {
-        // Exact token match
-        if (entry.tokens.includes(qt)) {
-          score += 3;
-          continue;
-        }
-        // Prefix match
-        if (entry.tokens.some((t) => t.startsWith(qt))) {
-          score += 2;
-          continue;
-        }
-        // Substring match
-        if (entry.tokens.some((t) => t.includes(qt))) {
-          score += 1;
-          continue;
-        }
-        // Tool name contains query
-        if (entry.tool.toLowerCase().includes(qt)) {
-          score += 2;
-          continue;
-        }
-        // Levenshtein fuzzy fallback — typo tolerance (e.g. "git_comit" → "git_commit")
-        // Only apply when both tokens are ≥ 4 chars to prevent short-word false positives
-        // (e.g. "get" ↔ "set" = distance 1, "run" ↔ "fun" = distance 1)
-        if (qt.length >= 4) {
-          const fuzzyMatch = entry.tokens.some(
-            (t) => t.length >= 4 && levenshtein(qt, t) <= 2
-          );
-          if (fuzzyMatch) {
-            score += 0.5;
+        for (const qt of queryTokens) {
+          // Exact token match
+          if (entry.tokens.includes(qt)) {
+            score += 3;
+            continue;
+          }
+          // Prefix match
+          if (entry.tokens.some((t) => t.startsWith(qt))) {
+            score += 2;
+            continue;
+          }
+          // Substring match
+          if (entry.tokens.some((t) => t.includes(qt))) {
+            score += 1;
+            continue;
+          }
+          // Tool name contains query
+          if (entry.tool.toLowerCase().includes(qt)) {
+            score += 2;
+            continue;
+          }
+          // Levenshtein fuzzy fallback — typo tolerance (e.g. "git_comit" → "git_commit")
+          // Only apply when both tokens are ≥ 4 chars to prevent short-word false positives
+          // (e.g. "get" ↔ "set" = distance 1, "run" ↔ "fun" = distance 1)
+          if (qt.length >= 4) {
+            const fuzzyMatch = entry.tokens.some(
+              (t) => t.length >= 4 && levenshtein(qt, t) <= 2
+            );
+            if (fuzzyMatch) {
+              score += 0.5;
+            }
           }
         }
+
+        if (score > 0) {
+          scored.push({
+            tool: entry.tool,
+            server: entry.server,
+            description: entry.description,
+            score,
+          });
+        }
       }
 
-      if (score > 0) {
-        scored.push({
-          tool: entry.tool,
-          server: entry.server,
-          description: entry.description,
-          score,
-        });
-      }
+      results = scored
+        .sort((a, b) => b.score - a.score)
+        .slice(0, maxResults);
     }
 
-    return scored
-      .sort((a, b) => b.score - a.score)
-      .slice(0, maxResults);
+    // Cache the result
+    this.searchCache.set(cacheKey, results);
+    return results;
   }
 
   /** Get a specific server's config */
@@ -198,15 +225,29 @@ export class Catalog {
     return this.data?.servers[name];
   }
 
-  /** Get a specific tool's full schema */
+  /** Get a specific tool's full schema (with LRU caching) */
   getToolSchema(
     serverName: string,
     toolName: string
   ): Record<string, unknown> | undefined {
+    const cacheKey = `${serverName}:${toolName}`;
+
+    // Check cache (null means "confirmed not found")
+    if (this.schemaCache.has(cacheKey)) {
+      const cached = this.schemaCache.get(cacheKey);
+      return cached ?? undefined;
+    }
+
     const server = this.data?.servers[serverName];
-    if (!server) return undefined;
+    if (!server) {
+      this.schemaCache.set(cacheKey, null);
+      return undefined;
+    }
     const tool = server.tools.find((t) => t.name === toolName);
-    return tool?.inputSchema;
+    const schema = tool?.inputSchema;
+
+    this.schemaCache.set(cacheKey, schema ?? null);
+    return schema;
   }
 
   /** Total number of servers in catalog */
@@ -232,5 +273,19 @@ export class Catalog {
       counts[name] = server.tools.length;
     }
     return counts;
+  }
+
+  /** Get cache statistics for monitoring */
+  cacheStats(): { search: CacheStats; schema: CacheStats } {
+    return {
+      search: this.searchCache.stats(),
+      schema: this.schemaCache.stats(),
+    };
+  }
+
+  /** Clear all caches (e.g. on catalog reload) */
+  clearCaches(): void {
+    this.searchCache.clear();
+    this.schemaCache.clear();
   }
 }

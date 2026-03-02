@@ -23,6 +23,10 @@ interface PoolEntry {
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const CONNECT_TIMEOUT_MS = 15_000;     // 15 seconds
 const MAX_CONCURRENT = 20;             // max simultaneous server connections
+const CALL_TIMEOUT_MS = 30_000;        // 30 seconds per tool call
+const MAX_RETRIES = 3;                 // max retry attempts for transient failures
+const RETRY_BASE_MS = 500;             // exponential backoff base delay
+const RETRY_MAX_MS = 8_000;            // max backoff delay cap
 
 export class ServerPool {
   private connections = new Map<string, PoolEntry>();
@@ -100,54 +104,118 @@ export class ServerPool {
     return client;
   }
 
-  /** Call a tool on a backend server (with auto-reconnect on failure) */
+  /**
+   * Call a tool on a backend server with timeout + exponential backoff retry.
+   *
+   * Retry strategy:
+   * - Connection errors (EPIPE, ECONNRESET, etc.): reconnect and retry up to MAX_RETRIES
+   * - Timeout errors: retry with fresh connection up to MAX_RETRIES
+   * - Application errors (tool returned an error): NOT retried (may not be idempotent)
+   */
   async callTool(
     serverName: string,
     toolName: string,
     args: Record<string, unknown>
   ): Promise<unknown> {
-    const client = await this.getClient(serverName);
-    const entry = this.connections.get(serverName)!;
-    entry.calls++;
+    let lastError: Error | undefined;
 
-    try {
-      const result = await client.callTool({ name: toolName, arguments: args });
-      return result;
-    } catch (err) {
-      entry.errors++;
+    for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+      const client = await this.getClient(serverName);
+      const entry = this.connections.get(serverName)!;
+      entry.calls++;
 
-      // Auto-reconnect only on transport/connection errors (backend crashed).
-      // Scoped to prevent double-execution of non-idempotent tools.
-      const msg = err instanceof Error ? err.message : String(err);
-      const isConnectionError =
-        msg.includes("EPIPE") ||
-        msg.includes("ERR_IPC_CHANNEL_CLOSED") ||
-        msg.includes("spawn") ||
-        msg.includes("ECONNRESET") ||
-        msg.includes("ENOENT") ||
-        msg.includes("not connected");
-
-      if (isConnectionError && this.connections.has(serverName)) {
-        process.stderr.write(
-          `[mcp-tool-search] ${serverName} connection lost, reconnecting...\n`
+      try {
+        // Apply per-call timeout
+        const result = await this.withTimeout(
+          client.callTool({ name: toolName, arguments: args }),
+          CALL_TIMEOUT_MS,
+          `${serverName}:${toolName}`
         );
-        await this.disconnect(serverName);
+        return result;
+      } catch (err) {
+        entry.errors++;
+        lastError = err instanceof Error ? err : new Error(String(err));
 
-        try {
-          const retryClient = await this.getClient(serverName);
-          const retryEntry = this.connections.get(serverName)!;
-          retryEntry.calls++;
-          return await retryClient.callTool({ name: toolName, arguments: args });
-        } catch (retryErr) {
-          process.stderr.write(
-            `[mcp-tool-search] ${serverName} reconnect failed: ${(retryErr as Error).message}\n`
-          );
-          throw retryErr;
+        const isRetryable = this.isRetryableError(lastError);
+
+        if (!isRetryable || attempt >= MAX_RETRIES) {
+          // Non-retryable error or exhausted retries
+          if (attempt > 0) {
+            process.stderr.write(
+              `[mcp-tool-search] ${serverName}:${toolName} failed after ${attempt + 1} attempts: ${lastError.message}\n`
+            );
+          }
+          throw lastError;
         }
-      }
 
-      throw err;
+        // Exponential backoff with jitter
+        const delay = this.backoffDelay(attempt);
+        process.stderr.write(
+          `[mcp-tool-search] ${serverName}:${toolName} attempt ${attempt + 1} failed (${lastError.message}), retrying in ${delay}ms...\n`
+        );
+
+        // Reconnect if connection error
+        if (this.connections.has(serverName)) {
+          await this.disconnect(serverName);
+        }
+
+        await this.sleep(delay);
+      }
     }
+
+    throw lastError ?? new Error(`${serverName}:${toolName} failed after retries`);
+  }
+
+  /** Wrap a promise with a timeout */
+  private withTimeout<T>(
+    promise: Promise<T>,
+    timeoutMs: number,
+    label: string
+  ): Promise<T> {
+    return new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(
+        () => reject(new Error(`Timeout: ${label} exceeded ${timeoutMs}ms`)),
+        timeoutMs
+      );
+      timer.unref(); // Don't block Node exit
+
+      promise
+        .then((result) => {
+          clearTimeout(timer);
+          resolve(result);
+        })
+        .catch((err) => {
+          clearTimeout(timer);
+          reject(err);
+        });
+    });
+  }
+
+  /** Determine if an error is retryable (connection/transport errors) */
+  private isRetryableError(err: Error): boolean {
+    const msg = err.message;
+    return (
+      msg.includes("EPIPE") ||
+      msg.includes("ERR_IPC_CHANNEL_CLOSED") ||
+      msg.includes("spawn") ||
+      msg.includes("ECONNRESET") ||
+      msg.includes("ENOENT") ||
+      msg.includes("not connected") ||
+      msg.includes("Connection closed") ||
+      msg.includes("Timeout:")
+    );
+  }
+
+  /** Calculate exponential backoff delay with jitter */
+  private backoffDelay(attempt: number): number {
+    const base = RETRY_BASE_MS * Math.pow(2, attempt);
+    const jitter = Math.random() * RETRY_BASE_MS;
+    return Math.min(base + jitter, RETRY_MAX_MS);
+  }
+
+  /** Async sleep utility */
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /** Reset idle timeout for a server */

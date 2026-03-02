@@ -277,4 +277,74 @@ describe("Catalog", () => {
       );
     });
   });
+
+  // ─── Search Cache Integration ──────────────────────────────
+  describe("search caching", () => {
+    it("should return same results on repeated search (cache hit)", () => {
+      const first = catalog.search("read_file", 10);
+      const second = catalog.search("read_file", 10);
+      assert.deepEqual(first, second);
+    });
+
+    it("should populate cache stats after searches", () => {
+      catalog.search("read_file", 10);
+      catalog.search("read_file", 10); // cache hit
+      catalog.search("write_file", 10); // different query, miss
+      const stats = catalog.cacheStats();
+      assert.equal(stats.search.hits, 1);
+      assert.equal(stats.search.misses, 2); // first read_file + write_file
+      assert.equal(stats.search.size, 2);
+    });
+
+    it("should differentiate cache keys by maxResults", () => {
+      catalog.search("file", 5);
+      catalog.search("file", 3);
+      // Different maxResults = different cache keys = 2 separate cache entries
+      const stats = catalog.cacheStats();
+      assert.equal(stats.search.size, 2, "Two distinct cache entries for different maxResults");
+      // Both should be misses (first-time lookups for each key)
+      assert.equal(stats.search.misses, 2);
+    });
+  });
+
+  // ─── Schema Cache Integration ──────────────────────────────
+  describe("schema caching", () => {
+    it("should cache tool schema lookups", () => {
+      catalog.getToolSchema("test-server", "read_file");
+      catalog.getToolSchema("test-server", "read_file"); // cache hit
+      const stats = catalog.cacheStats();
+      assert.ok(stats.schema.hits >= 1 || stats.schema.size >= 1);
+    });
+
+    it("should cache negative lookups (missing tool)", () => {
+      catalog.getToolSchema("test-server", "nonexistent");
+      catalog.getToolSchema("test-server", "nonexistent"); // should hit cached null
+      const stats = catalog.cacheStats();
+      assert.ok(stats.schema.size >= 1, "Should cache negative result");
+    });
+  });
+
+  // ─── Cache Lifecycle ───────────────────────────────────────
+  describe("cache lifecycle", () => {
+    it("should clear caches on catalog reload", () => {
+      catalog.search("read_file", 10);
+      catalog.getToolSchema("test-server", "read_file");
+      const beforeStats = catalog.cacheStats();
+      assert.ok(beforeStats.search.size > 0);
+
+      // Reload clears caches
+      catalog.loadFromData(MOCK_CATALOG);
+      const afterStats = catalog.cacheStats();
+      assert.equal(afterStats.search.size, 0);
+      assert.equal(afterStats.schema.size, 0);
+    });
+
+    it("should clear caches explicitly", () => {
+      catalog.search("read_file", 10);
+      catalog.clearCaches();
+      const stats = catalog.cacheStats();
+      assert.equal(stats.search.size, 0);
+      assert.equal(stats.search.hits, 0);
+    });
+  });
 });
