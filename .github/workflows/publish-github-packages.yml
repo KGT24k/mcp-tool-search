@@ -11,7 +11,7 @@ jobs:
     permissions:
       packages: write
       contents: read
-      id-token: write  # Required for npm provenance
+      id-token: write
     steps:
       - uses: actions/checkout@v4
 
@@ -38,10 +38,11 @@ jobs:
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
             pkg.name = '@kgt24k/mcp-tool-search';
-            pkg.publishConfig = { registry: 'https://npm.pkg.github.com' };
-            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
+            pkg.publishConfig = { registry: 'https://npm.pkg.github.com', access: 'public' };
+            fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '
+');
           "
 
-      - run: npm publish --provenance
+      - run: npm publish --access public
         env:
           NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
