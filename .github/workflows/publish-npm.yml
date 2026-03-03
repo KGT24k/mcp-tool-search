@@ -3,7 +3,6 @@ name: Publish to npm
 on:
   release:
     types: [published]
-  workflow_dispatch:
 
 jobs:
   publish:
@@ -31,6 +30,20 @@ jobs:
       - name: Verify tests pass
         run: npm test
 
-      - run: npm publish --provenance
+      - name: Check if version already on npm
+        id: check
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          if npm view mcp-tool-search@$VERSION version 2>/dev/null; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION already on npm — skipping upload"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "Version $VERSION not on npm — will upload"
+          fi
+
+      - name: Publish to npm
+        if: steps.check.outputs.exists == 'false'
+        run: npm publish --provenance
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
