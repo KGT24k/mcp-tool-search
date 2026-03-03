@@ -1,0 +1,516 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MCP Tool Search — Save 85-96% Context Tokens</title>
+  <meta name="description" content="MCP proxy that reduces Claude context token usage by 85-96% via lazy tool loading. Works with Claude Code, Claude Desktop, Cursor, and any MCP client.">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2290%22>🔍</text></svg>">
+  <style>
+    :root {
+      --bg: #0a0a0f;
+      --surface: #12121a;
+      --surface2: #1a1a28;
+      --border: #2a2a3d;
+      --text: #e4e4ef;
+      --text-dim: #8888a0;
+      --accent: #6366f1;
+      --accent-light: #818cf8;
+      --accent-glow: rgba(99, 102, 241, 0.15);
+      --green: #34d399;
+      --green-dim: rgba(52, 211, 153, 0.12);
+      --orange: #f59e0b;
+      --red: #ef4444;
+      --mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+      --sans: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', Roboto, sans-serif;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: var(--sans);
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+    /* ── Nav ─────────────────────────────────────────────────────── */
+    nav {
+      position: sticky; top: 0; z-index: 100;
+      background: rgba(10, 10, 15, 0.85);
+      backdrop-filter: blur(16px);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 0;
+    }
+    nav .container {
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .nav-brand {
+      font-weight: 700; font-size: 1.1rem; color: var(--text);
+      text-decoration: none; display: flex; align-items: center; gap: 8px;
+    }
+    .nav-brand span { color: var(--accent-light); }
+    .nav-links { display: flex; gap: 28px; align-items: center; }
+    .nav-links a {
+      color: var(--text-dim); text-decoration: none; font-size: 0.9rem;
+      transition: color 0.2s;
+    }
+    .nav-links a:hover { color: var(--text); }
+    .btn-sm {
+      padding: 6px 16px; border-radius: 6px; font-size: 0.85rem;
+      background: var(--accent); color: #fff; text-decoration: none;
+      transition: background 0.2s;
+    }
+    .btn-sm:hover { background: var(--accent-light); }
+
+    /* ── Hero ─────────────────────────────────────────────────── */
+    .hero {
+      padding: 100px 0 80px; text-align: center;
+      background: radial-gradient(ellipse at 50% 0%, var(--accent-glow) 0%, transparent 60%);
+    }
+    .hero-badge {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 14px; border-radius: 20px;
+      background: var(--green-dim); border: 1px solid rgba(52, 211, 153, 0.2);
+      color: var(--green); font-size: 0.82rem; font-weight: 500;
+      margin-bottom: 28px;
+    }
+    .hero h1 {
+      font-size: clamp(2.4rem, 5vw, 3.6rem); font-weight: 800;
+      line-height: 1.15; margin-bottom: 20px;
+      background: linear-gradient(135deg, var(--text) 0%, var(--accent-light) 100%);
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p {
+      font-size: 1.15rem; color: var(--text-dim);
+      max-width: 640px; margin: 0 auto 36px;
+    }
+    .hero-actions { display: flex; gap: 16px; justify-content: center; flex-wrap: wrap; }
+    .btn {
+      padding: 12px 28px; border-radius: 8px; font-size: 1rem; font-weight: 600;
+      text-decoration: none; transition: all 0.2s; display: inline-flex;
+      align-items: center; gap: 8px;
+    }
+    .btn-primary { background: var(--accent); color: #fff; }
+    .btn-primary:hover { background: var(--accent-light); transform: translateY(-1px); }
+    .btn-secondary {
+      background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+    }
+    .btn-secondary:hover { border-color: var(--accent); }
+
+    /* ── Install bar ───────────────────────────────────────────── */
+    .install-bar {
+      margin-top: 40px; display: flex; justify-content: center;
+    }
+    .install-cmd {
+      display: flex; align-items: center; gap: 12px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 10px; padding: 12px 20px; cursor: pointer;
+      transition: border-color 0.2s;
+    }
+    .install-cmd:hover { border-color: var(--accent); }
+    .install-cmd code {
+      font-family: var(--mono); font-size: 0.95rem; color: var(--green);
+    }
+    .install-cmd .copy-icon { color: var(--text-dim); font-size: 0.85rem; }
+
+    /* ── Stats row ─────────────────────────────────────────────── */
+    .stats {
+      display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px;
+      background: var(--border); border-radius: 12px; overflow: hidden;
+      margin: 60px auto; max-width: 800px;
+    }
+    .stat {
+      background: var(--surface); padding: 28px 20px; text-align: center;
+    }
+    .stat-value {
+      font-size: 1.8rem; font-weight: 800; color: var(--accent-light);
+      font-variant-numeric: tabular-nums;
+    }
+    .stat-label { font-size: 0.8rem; color: var(--text-dim); margin-top: 4px; }
+
+    /* ── Sections ──────────────────────────────────────────────── */
+    section { padding: 80px 0; }
+    .section-title {
+      font-size: 1.8rem; font-weight: 700; margin-bottom: 12px;
+    }
+    .section-sub {
+      color: var(--text-dim); font-size: 1.05rem; margin-bottom: 48px;
+      max-width: 560px;
+    }
+
+    /* ── How it works ──────────────────────────────────────────── */
+    .flow {
+      display: grid; grid-template-columns: repeat(3, 1fr); gap: 24px;
+    }
+    .flow-step {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 32px 24px;
+      transition: border-color 0.2s;
+    }
+    .flow-step:hover { border-color: var(--accent); }
+    .flow-num {
+      width: 36px; height: 36px; border-radius: 8px;
+      background: var(--accent-glow); border: 1px solid rgba(99,102,241,0.3);
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; color: var(--accent-light); font-size: 0.9rem;
+      margin-bottom: 16px;
+    }
+    .flow-step h3 { font-size: 1.1rem; margin-bottom: 8px; }
+    .flow-step p { color: var(--text-dim); font-size: 0.9rem; }
+
+    /* ── Savings table ─────────────────────────────────────────── */
+    .savings-grid {
+      display: grid; grid-template-columns: 1fr 1fr; gap: 32px;
+      align-items: start;
+    }
+    .savings-table {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    .savings-table table { width: 100%; border-collapse: collapse; }
+    .savings-table th {
+      background: var(--surface2); padding: 14px 20px; text-align: left;
+      font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--text-dim); border-bottom: 1px solid var(--border);
+    }
+    .savings-table td {
+      padding: 12px 20px; border-bottom: 1px solid var(--border);
+      font-family: var(--mono); font-size: 0.9rem;
+    }
+    .savings-table tr:last-child td { border-bottom: none; }
+    .savings-pct { color: var(--green); font-weight: 700; }
+
+    .savings-visual {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 32px;
+    }
+    .savings-visual h3 { margin-bottom: 24px; font-size: 1.1rem; }
+    .bar-pair { margin-bottom: 20px; }
+    .bar-label {
+      font-size: 0.8rem; color: var(--text-dim); margin-bottom: 6px;
+      display: flex; justify-content: space-between;
+    }
+    .bar-track {
+      height: 28px; background: var(--surface2); border-radius: 6px;
+      overflow: hidden; position: relative;
+    }
+    .bar-fill {
+      height: 100%; border-radius: 6px; transition: width 0.8s ease;
+      display: flex; align-items: center; padding-left: 10px;
+      font-size: 0.75rem; font-weight: 600; color: rgba(255,255,255,0.9);
+    }
+    .bar-before { background: var(--red); }
+    .bar-after { background: var(--green); }
+
+    /* ── Features ──────────────────────────────────────────────── */
+    .features {
+      display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px;
+    }
+    .feature {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 28px;
+      transition: border-color 0.2s;
+    }
+    .feature:hover { border-color: var(--accent); }
+    .feature-icon {
+      font-size: 1.4rem; margin-bottom: 12px;
+    }
+    .feature h3 { font-size: 1rem; margin-bottom: 6px; }
+    .feature p { color: var(--text-dim); font-size: 0.88rem; }
+
+    /* ── Code block ────────────────────────────────────────────── */
+    .code-block {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; overflow: hidden;
+    }
+    .code-header {
+      background: var(--surface2); padding: 10px 20px;
+      font-size: 0.8rem; color: var(--text-dim);
+      border-bottom: 1px solid var(--border);
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .code-body {
+      padding: 20px; font-family: var(--mono); font-size: 0.85rem;
+      line-height: 1.7; overflow-x: auto;
+    }
+    .code-body .comment { color: #6b7280; }
+    .code-body .string { color: var(--green); }
+    .code-body .key { color: var(--accent-light); }
+    .code-body .punct { color: var(--text-dim); }
+
+    /* ── CTA ───────────────────────────────────────────────────── */
+    .cta {
+      text-align: center; padding: 80px 0;
+      background: radial-gradient(ellipse at 50% 100%, var(--accent-glow) 0%, transparent 60%);
+    }
+    .cta h2 { font-size: 2rem; margin-bottom: 12px; }
+    .cta p { color: var(--text-dim); margin-bottom: 32px; font-size: 1.05rem; }
+
+    /* ── Footer ────────────────────────────────────────────────── */
+    footer {
+      padding: 40px 0; border-top: 1px solid var(--border);
+      text-align: center;
+    }
+    footer p { color: var(--text-dim); font-size: 0.85rem; }
+    footer a { color: var(--accent-light); text-decoration: none; }
+    footer a:hover { text-decoration: underline; }
+
+    /* ── Responsive ────────────────────────────────────────────── */
+    @media (max-width: 768px) {
+      .stats { grid-template-columns: repeat(2, 1fr); }
+      .flow { grid-template-columns: 1fr; }
+      .savings-grid { grid-template-columns: 1fr; }
+      .features { grid-template-columns: 1fr; }
+      .nav-links a:not(.btn-sm) { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<nav>
+  <div class="container">
+    <a href="#" class="nav-brand">🔍 <span>mcp-tool-search</span></a>
+    <div class="nav-links">
+      <a href="#how-it-works">How It Works</a>
+      <a href="#savings">Savings</a>
+      <a href="#features">Features</a>
+      <a href="https://github.com/KGT24k/mcp-tool-search" target="_blank">GitHub</a>
+      <a href="https://www.npmjs.com/package/mcp-tool-search" target="_blank" class="btn-sm">npm</a>
+    </div>
+  </div>
+</nav>
+
+<section class="hero">
+  <div class="container">
+    <div class="hero-badge">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+      Save 85-96% context tokens
+    </div>
+    <h1>Your MCP tools,<br>without the token bloat</h1>
+    <p>A lightweight proxy that replaces hundreds of MCP tool definitions with just 4 — so your AI assistant has room to actually think.</p>
+    <div class="hero-actions">
+      <a href="https://www.npmjs.com/package/mcp-tool-search" target="_blank" class="btn btn-primary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M0 7.334v8h6.666v1.332H12v-1.332h12v-8H0zm6.666 6.664H5.334v-4H3.999v4H1.335V8.667h5.331v5.331zm4 0h-2.666V8.667h2.666v5.331zm12-5.331v4h-1.334v-4h-1.335v4h-1.333v-4h-1.333v5.331H12V8.667h10.666z"/></svg>
+        Install from npm
+      </a>
+      <a href="https://github.com/KGT24k/mcp-tool-search" target="_blank" class="btn btn-secondary">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.3 3.438 9.8 8.205 11.387.6.113.82-.258.82-.577 0-.285-.01-1.04-.015-2.04-3.338.724-4.042-1.61-4.042-1.61C4.422 17.07 3.633 16.7 3.633 16.7c-1.087-.744.084-.729.084-.729 1.205.084 1.838 1.236 1.838 1.236 1.07 1.835 2.809 1.305 3.495.998.108-.776.417-1.305.76-1.605-2.665-.3-5.466-1.332-5.466-5.93 0-1.31.465-2.38 1.235-3.22-.135-.303-.54-1.523.105-3.176 0 0 1.005-.322 3.3 1.23.96-.267 1.98-.399 3-.405 1.02.006 2.04.138 3 .405 2.28-1.552 3.285-1.23 3.285-1.23.645 1.653.24 2.873.12 3.176.765.84 1.23 1.91 1.23 3.22 0 4.61-2.805 5.625-5.475 5.92.42.36.81 1.096.81 2.22 0 1.606-.015 2.896-.015 3.286 0 .315.21.69.825.57C20.565 21.795 24 17.295 24 12c0-6.63-5.37-12-12-12"/></svg>
+        View on GitHub
+      </a>
+    </div>
+    <div class="install-bar">
+      <div class="install-cmd" onclick="copyInstall()" title="Click to copy">
+        <code>npx -y mcp-tool-search</code>
+        <span class="copy-icon" id="copy-icon">📋</span>
+      </div>
+    </div>
+  </div>
+</section>
+
+<div class="container">
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-value">85-96%</div>
+      <div class="stat-label">Token Savings</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">4</div>
+      <div class="stat-label">Proxy Tools</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">2</div>
+      <div class="stat-label">Dependencies</div>
+    </div>
+    <div class="stat">
+      <div class="stat-value">100+</div>
+      <div class="stat-label">MCP Servers Supported</div>
+    </div>
+  </div>
+</div>
+
+<section id="how-it-works">
+  <div class="container">
+    <div class="section-title">How it works</div>
+    <p class="section-sub">Three steps. No config rewrite. Your existing MCP servers keep working exactly as before.</p>
+    <div class="flow">
+      <div class="flow-step">
+        <div class="flow-num">1</div>
+        <h3>Build a catalog</h3>
+        <p>Run <code style="color:var(--green)">mcp-build-catalog</code> once — it scans your MCP config, connects to each server, snapshots every tool schema into a single JSON file, then disconnects.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">2</div>
+        <h3>Swap your config</h3>
+        <p>Replace your MCP server entries with a single <code style="color:var(--green)">mcp-tool-search</code> entry. Your backend servers are now loaded lazily on demand.</p>
+      </div>
+      <div class="flow-step">
+        <div class="flow-num">3</div>
+        <h3>Let the AI search</h3>
+        <p>Instead of loading 200+ tool schemas upfront, Claude searches for tools by name, gets schemas on demand, and calls them through the proxy.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="savings" style="background: var(--surface);">
+  <div class="container">
+    <div class="section-title">Real token savings</div>
+    <p class="section-sub">Measured across real-world MCP configurations with 10 to 200+ tools.</p>
+    <div class="savings-grid">
+      <div class="savings-table">
+        <table>
+          <thead>
+            <tr><th>Tools</th><th>Before</th><th>After</th><th>Saved</th></tr>
+          </thead>
+          <tbody>
+            <tr><td>10</td><td>2,400</td><td>720</td><td class="savings-pct">70%</td></tr>
+            <tr><td>25</td><td>6,000</td><td>720</td><td class="savings-pct">88%</td></tr>
+            <tr><td>50</td><td>12,000</td><td>720</td><td class="savings-pct">94%</td></tr>
+            <tr><td>100</td><td>24,000</td><td>720</td><td class="savings-pct">97%</td></tr>
+            <tr><td>200</td><td>48,000</td><td>720</td><td class="savings-pct">98.5%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="savings-visual">
+        <h3>50 tools: Before vs After</h3>
+        <div class="bar-pair">
+          <div class="bar-label"><span>Without proxy</span><span>~12,000 tokens</span></div>
+          <div class="bar-track"><div class="bar-fill bar-before" style="width:100%">12,000</div></div>
+        </div>
+        <div class="bar-pair">
+          <div class="bar-label"><span>With mcp-tool-search</span><span>~720 tokens</span></div>
+          <div class="bar-track"><div class="bar-fill bar-after" style="width:6%">720</div></div>
+        </div>
+        <p style="color:var(--text-dim);font-size:0.85rem;margin-top:16px;">
+          That's <strong style="color:var(--green)">11,280 tokens saved</strong> — every single message. More room for context, code, and reasoning.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section id="features">
+  <div class="container">
+    <div class="section-title">Built for production</div>
+    <p class="section-sub">Lightweight, secure, and compatible with every MCP client.</p>
+    <div class="features">
+      <div class="feature">
+        <div class="feature-icon">⚡</div>
+        <h3>Lazy Connection Pooling</h3>
+        <p>Backend servers are spawned on first call and kept alive for 5 minutes. LRU eviction when at capacity. Zero cold-start waste.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🔍</div>
+        <h3>Fuzzy Search</h3>
+        <p>Token-based scoring with prefix matching, substring matching, and Levenshtein distance. LRU-cached results with 1-minute TTL.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🔒</div>
+        <h3>Env Var Allowlist</h3>
+        <p>Only 16 safe environment variables (PATH, HOME, etc.) are passed to spawned servers. Your API keys never leak to child processes.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🌐</div>
+        <h3>Dual Transport</h3>
+        <p>Stdio for local use, Streamable HTTP for remote clients. DNS rebinding protection, gzip compression, session management built in.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">🔄</div>
+        <h3>Auto-Retry with Backoff</h3>
+        <p>Exponential backoff with jitter on EPIPE, ECONNRESET, and spawn errors. Up to 3 retries, capped at 8 seconds.</p>
+      </div>
+      <div class="feature">
+        <div class="feature-icon">📦</div>
+        <h3>2 Runtime Dependencies</h3>
+        <p>Just @modelcontextprotocol/sdk and zod. No bloated dependency trees. Passes npm audit with zero vulnerabilities.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="container">
+    <div class="section-title">Quick setup</div>
+    <p class="section-sub">Add to your Claude Code settings in under a minute.</p>
+    <div class="code-block">
+      <div class="code-header">
+        <span>.claude/settings.json</span>
+        <span style="color:var(--green)">Claude Code</span>
+      </div>
+      <div class="code-body">
+<span class="punct">{</span>
+  <span class="key">"mcpServers"</span><span class="punct">: {</span>
+    <span class="key">"mcp-tool-search"</span><span class="punct">: {</span>
+      <span class="key">"command"</span><span class="punct">:</span> <span class="string">"npx"</span><span class="punct">,</span>
+      <span class="key">"args"</span><span class="punct">: [</span><span class="string">"-y"</span><span class="punct">,</span> <span class="string">"mcp-tool-search"</span><span class="punct">]</span>
+    <span class="punct">}</span>
+  <span class="punct">}</span>
+<span class="punct">}</span>
+      </div>
+    </div>
+    <p style="color:var(--text-dim);font-size:0.9rem;margin-top:16px;">
+      Works with <strong>Claude Code</strong>, <strong>Claude Desktop</strong>, <strong>Cursor</strong>, <strong>Windsurf</strong>, and any MCP-compatible client.
+    </p>
+  </div>
+</section>
+
+<section class="cta">
+  <div class="container">
+    <h2>Stop wasting tokens on tool schemas</h2>
+    <p>Install in one command. Save thousands of tokens per message. Ship faster.</p>
+    <div class="hero-actions">
+      <a href="https://www.npmjs.com/package/mcp-tool-search" target="_blank" class="btn btn-primary">
+        Get started — npm install
+      </a>
+      <a href="https://github.com/KGT24k/mcp-tool-search#readme" target="_blank" class="btn btn-secondary">
+        Read the docs
+      </a>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="container">
+    <p>
+      Built by <a href="https://github.com/KGT24k">Kaleb Teeter</a> ·
+      MIT License ·
+      <a href="https://github.com/KGT24k/mcp-tool-search">GitHub</a> ·
+      <a href="https://www.npmjs.com/package/mcp-tool-search">npm</a>
+    </p>
+    <p style="margin-top:8px;">
+      Part of the <a href="https://github.com/KGT24k">AEGIS Forge</a> ecosystem
+    </p>
+  </div>
+</footer>
+
+<script>
+function copyInstall() {
+  navigator.clipboard.writeText('npx -y mcp-tool-search').then(() => {
+    const icon = document.getElementById('copy-icon');
+    icon.textContent = '✅';
+    setTimeout(() => icon.textContent = '📋', 2000);
+  });
+}
+
+// Animate bars on scroll
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(entry => {
+    if (entry.isIntersecting) {
+      entry.target.querySelectorAll('.bar-fill').forEach(bar => {
+        bar.style.width = bar.getAttribute('style').match(/width:(\S+)/)[1];
+      });
+    }
+  });
+}, { threshold: 0.3 });
+
+document.querySelectorAll('.savings-visual').forEach(el => observer.observe(el));
+</script>
+
+</body>
+</html>

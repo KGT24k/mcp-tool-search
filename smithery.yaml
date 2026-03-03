@@ -1,27 +1,54 @@
-name: mcp-tool-search
-description: Reduce MCP tool-definition context overhead by 85-96%. Proxy server with lazy tool loading and fuzzy search across backend MCP servers. Works with Claude Code, Claude Desktop, Cursor, Windsurf, and any MCP client.
-version: "1.3.0"
-license: MIT
-author: Kaleb Teeter
-homepage: https://github.com/KGT24k/mcp-tool-search
-repository: https://github.com/KGT24k/mcp-tool-search
-categories:
-  - tools
-  - development
-  - optimization
-  - proxy
+# Smithery.ai registry configuration
+# https://smithery.ai/docs/config
 
 startCommand:
   type: stdio
   configSchema:
+    type: object
     properties:
-      catalogPath:
-        type: string
-        description: "Path to catalog.json (pre-built tool index). Defaults to ./catalog.json."
-        default: ./catalog.json
+      mcpServers:
+        type: object
+        description: "MCP server configurations to proxy (same format as Claude Desktop config)"
+        additionalProperties:
+          type: object
+          properties:
+            command:
+              type: string
+            args:
+              type: array
+              items:
+                type: string
+            env:
+              type: object
+              additionalProperties:
+                type: string
+    required:
+      - mcpServers
   commandFunction: |-
     (config) => ({
-      command: "npx",
-      args: ["-y", "mcp-tool-search"],
-      env: config.catalogPath ? { MCP_TOOL_SEARCH_CATALOG: config.catalogPath } : {}
+      command: 'npx',
+      args: ['-y', 'mcp-tool-search'],
+      env: {
+        MCP_TOOL_SEARCH_CONFIG: JSON.stringify(config.mcpServers)
+      }
     })
+
+name: mcp-tool-search
+description: >-
+  MCP proxy that reduces context token usage by 85-96% via lazy tool loading.
+  Replaces all backend tool schemas with 4 lightweight proxy tools using fuzzy
+  search. Works with Claude Code, Claude Desktop, Cursor, and any MCP client.
+version: 1.3.0
+homepage: https://github.com/KGT24k/mcp-tool-search
+author: Kaleb Teeter
+license: MIT
+categories:
+  - tools
+  - development
+  - optimization
+keywords:
+  - mcp
+  - proxy
+  - token-optimization
+  - lazy-loading
+  - tool-search
