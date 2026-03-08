@@ -5,7 +5,7 @@
 [![npm audit](https://img.shields.io/badge/npm%20audit-0%20vulnerabilities-brightgreen.svg)](https://www.npmjs.com/package/mcp-tool-search)
 [![MIT License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Node.js 20+](https://img.shields.io/badge/node-%3E%3D20.0.0-brightgreen.svg)](https://nodejs.org/)
-[![Tests](https://img.shields.io/badge/tests-36%2F36-brightgreen.svg)](src/__tests__)
+[![Tests](https://img.shields.io/badge/tests-81%2F81-brightgreen.svg)](src/__tests__)
 
 **Reduce MCP tool-definition context overhead by ~85–96%.**
 
@@ -299,7 +299,7 @@ Contributions are welcome! Here's how to get started:
 1. **Fork** the repository and clone your fork
 2. **Install dependencies:** `npm install`
 3. **Build:** `npm run build`
-4. **Run tests:** `npm test` (all 36 tests must pass)
+4. **Run tests:** `npm test` (all 81 tests must pass)
 5. **Make your changes** on a feature branch
 6. **Submit a PR** with a clear description of what changed and why
 

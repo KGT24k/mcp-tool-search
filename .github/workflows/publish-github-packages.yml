@@ -36,7 +36,7 @@ jobs:
           node -e "
             const fs = require('fs');
             const pkg = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-            pkg.name = '@YOUR_GITHUB_USERNAME/mcp-tool-search';
+            pkg.name = '@KGT24k/mcp-tool-search';
             pkg.publishConfig = { registry: 'https://npm.pkg.github.com', access: 'public' };
             fs.writeFileSync('package.json', JSON.stringify(pkg, null, 2) + '\n');
           "
