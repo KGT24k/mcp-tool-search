@@ -341,6 +341,12 @@ function registerTools(server: McpServer, catalog: Catalog, pool: ServerPool): v
       query: z.string().describe("Search query: tool name, capability, or keyword"),
       max_results: z.number().min(1).max(50).default(10).describe("Max results (default 10)"),
     },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     async ({ query, max_results }) => {
       const results = catalog.search(query, max_results);
       if (results.length === 0) {
@@ -359,6 +365,12 @@ function registerTools(server: McpServer, catalog: Catalog, pool: ServerPool): v
       server: z.string().describe("Server name"),
       tool: z.string().describe("Tool name"),
     },
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     async ({ server: sn, tool: tn }) => {
       const schema = catalog.getToolSchema(sn, tn);
       if (!schema) return { content: [{ type: "text" as const, text: `Tool "${tn}" not found on "${sn}".` }] };
@@ -373,6 +385,12 @@ function registerTools(server: McpServer, catalog: Catalog, pool: ServerPool): v
       server: z.string().describe("Server name"),
       tool: z.string().describe("Tool name"),
       arguments: z.record(z.unknown()).default({}).describe("Tool arguments as JSON object"),
+    },
+    {
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
     },
     async ({ server: sn, tool: tn, arguments: args }) => {
       if (!catalog.getServer(sn)) return { content: [{ type: "text" as const, text: `Unknown server: '${sn}'.` }], isError: true };
@@ -391,7 +409,12 @@ function registerTools(server: McpServer, catalog: Catalog, pool: ServerPool): v
   server.tool(
     "list_servers",
     "List all available MCP servers with tool counts and connection status.",
-    {},
+    {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     async () => {
       const tc = catalog.serverToolCounts();
       const ps = pool.stats();

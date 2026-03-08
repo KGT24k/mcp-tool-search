@@ -335,4 +335,4 @@ pip install mcp-config-guard && config-guard
 
 ## License
 
-[MIT](LICENSE) — Copyright (c) 2026 Kaleb Teeter
+[MIT](LICENSE) — Copyright (c) 2026 AEGIS Forge Team
