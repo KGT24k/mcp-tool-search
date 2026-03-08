@@ -14,7 +14,7 @@ If you discover a security vulnerability in mcp-tool-search, please report it re
 
 1. **Do NOT open a public GitHub issue** for security vulnerabilities
 2. **GitHub Private Security Advisory:** Use the [Security Advisories](https://github.com/KGT24k/mcp-tool-search/security/advisories/new) tab to report privately
-3. **Alternatively:** Contact [@KGT24k on GitHub](https://github.com/KGT24k) via direct message
+3. **Alternatively:** Contact [@KGT24k on GitHub](https://github.com/KGT24k)
 4. **Include:**
    - Description of the vulnerability
    - Steps to reproduce
