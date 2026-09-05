@@ -47,7 +47,7 @@
     "url": "https://github.com/KGT24k/mcp-tool-search/issues"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "1.27.1",
+    "@modelcontextprotocol/sdk": "1.30.0",
     "zod": "3.25.76"
   },
   "devDependencies": {
